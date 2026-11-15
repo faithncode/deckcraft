@@ -99,8 +99,18 @@ pub fn status_bar(app: &mut SlideApp, ui: &mut Ui) {
         if view_icon(&mut right, Icon::ViewSorterSmall, "Slide Sorter", view == ViewMode::Sorter).clicked() {
             app.ui.view = ViewMode::Sorter;
         }
-        if view_icon(&mut right, Icon::ViewNormalSmall, "Normal", view == ViewMode::Normal).clicked() {
+        let normal = view_icon(&mut right, Icon::ViewNormalSmall, "Normal", view == ViewMode::Normal);
+        if normal.clicked() {
+            // Shift-click opens Slide Master; in a master view any click (Shift or not) goes back
+            // to the slides, so the same shortcut toggles.
+            let shift = right.input(|i| i.modifiers.shift);
+            let in_master = app.session.active().is_some_and(|d| d.selection.target != deckcraft_engine::Target::Slides);
             app.ui.view = ViewMode::Normal;
+            if in_master {
+                let _ = app.run("view.closeMaster", json!({}));
+            } else if shift {
+                let _ = app.run("view.slideMaster", json!({}));
+            }
         }
         right.add_space(8.0);
         let c_on = app.ui.pane.as_deref() == Some("comments");
@@ -420,5 +430,45 @@ mod tests {
         h.state_mut().set_status("Saved a copy");
         h.run_steps(3);
         assert_eq!(h.get_by_value("Saved a copy").accesskit_node().role(), Role::Label);
+    }
+
+    /// Shift-clicking the Normal view button opens Slide Master, as in PowerPoint; a plain click
+    /// on it leaves the master view again.
+    #[test]
+    fn shift_click_on_normal_opens_slide_master() {
+        let mut h = Harness::builder().with_size(egui::vec2(1200.0, 800.0)).build_ui_state(
+            |ui, app: &mut SlideApp| {
+                app.logic(ui.ctx());
+                app.ui(ui);
+            },
+            SlideApp::new(Session::with_new(), Services::default()),
+        );
+        h.run_steps(3);
+        let in_master = |h: &Harness<'_, SlideApp>| h.state().session.active().unwrap().selection.target != deckcraft_engine::Target::Slides;
+        let click = |h: &mut Harness<'_, SlideApp>, modifiers: Modifiers| {
+            let pos = h.get_by_role_and_label(Role::Button, "Normal").rect().center();
+            h.event(Event::PointerMoved(pos));
+            h.run_steps(1);
+            for pressed in [true, false] {
+                h.event(Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers });
+            }
+            h.run_steps(3);
+        };
+        h.event(Event::ModifiersChanged(Modifiers::SHIFT));
+        click(&mut h, Modifiers::SHIFT);
+        h.event(Event::ModifiersChanged(Modifiers::NONE));
+        assert!(in_master(&h), "Shift-click on Normal opens Slide Master");
+        // Shift-click again toggles back.
+        h.event(Event::ModifiersChanged(Modifiers::SHIFT));
+        click(&mut h, Modifiers::SHIFT);
+        h.event(Event::ModifiersChanged(Modifiers::NONE));
+        assert!(!in_master(&h), "a second Shift-click on Normal goes back to the slides");
+        h.event(Event::ModifiersChanged(Modifiers::SHIFT));
+        click(&mut h, Modifiers::SHIFT);
+        h.event(Event::ModifiersChanged(Modifiers::NONE));
+        assert!(in_master(&h), "and a third opens Slide Master again");
+        click(&mut h, Modifiers::NONE);
+        assert!(!in_master(&h), "a plain click on Normal goes back to the slides");
+        assert_eq!(h.state().ui.view, ViewMode::Normal);
     }
 }

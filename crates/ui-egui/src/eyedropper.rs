@@ -35,7 +35,8 @@ enum Pick {
 /// An Eyedropper waiting for a click: the slide as it is drawn and what the click is for.
 pub struct State {
     pick: Pick,
-    slide: usize,
+    /// The slide clicked, or none on a master or layout (Slide Master view).
+    slide: Option<usize>,
     image: deckcraft_render::Image,
 }
 
@@ -98,24 +99,41 @@ pub fn tick(app: &mut SlideApp, ctx: &Context) {
         let outside =
             ctx.input(|i| i.pointer.primary_pressed() && i.pointer.hover_pos().is_some_and(|p| app.canvas_rect.is_none_or(|c| !c.contains(p))));
         if outside {
-            app.eyedropper = None;
+            end(app);
         }
     }
 }
 
 fn begin(app: &mut SlideApp, pick: Pick) {
+    use deckcraft_engine::Target;
     let Some(d) = app.session.active() else { return };
-    if d.selection.target != deckcraft_engine::Target::Slides {
-        app.set_status("The Eyedropper takes colours from a slide");
-        return;
-    }
-    let slide = d.selection.slide;
-    let image = deckcraft_render::render_slide(&d.doc, slide, &deckcraft_render::RenderOpts { scale: SCALE, ..Default::default() });
+    let opts = deckcraft_render::RenderOpts { scale: SCALE, ..Default::default() };
+    // In Slide Master view the colour comes from the master or layout being edited.
+    let (slide, image) = match (d.selection.target, pick) {
+        (Target::Slides, _) => (Some(d.selection.slide), deckcraft_render::render_slide(&d.doc, d.selection.slide, &opts)),
+        (Target::Master { master }, Pick::Menu(_)) => (None, deckcraft_render::render_layout(&d.doc, master, None, &opts)),
+        (Target::Layout { master, layout }, Pick::Menu(_)) => (None, deckcraft_render::render_layout(&d.doc, master, Some(layout), &opts)),
+        _ => {
+            app.set_status("The Eyedropper takes colours from a slide, master or layout");
+            return;
+        }
+    };
     app.eyedropper = Some(State { pick, slide, image });
     app.set_status(match pick {
-        Pick::Menu(_) => "Eyedropper: click the slide (Esc cancels)",
-        Pick::TransparentColor => "Set Transparent Color: click the colour in the picture (Esc cancels)",
+        Pick::Menu(_) => PROMPTS[0],
+        Pick::TransparentColor => PROMPTS[1],
     });
+}
+
+const PROMPTS: [&str; 2] = ["Eyedropper: click the slide (Esc cancels)", "Set Transparent Color: click the colour in the picture (Esc cancels)"];
+
+/// Stop waiting for a click. The prompt goes from the status bar too: left there, it read as if
+/// the Eyedropper were still waiting after the colour had been taken.
+fn end(app: &mut SlideApp) {
+    app.eyedropper = None;
+    if app.status.as_ref().is_some_and(|(m, _)| PROMPTS.contains(&m.as_str())) {
+        app.status = None;
+    }
 }
 
 fn hex(c: [u8; 4]) -> String {
@@ -128,7 +146,7 @@ pub fn canvas(app: &mut SlideApp, ui: &Ui, resp: &egui::Response, xf: Xf) -> boo
     let Some(state) = app.eyedropper.as_ref() else { return false };
     let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
     if escape || resp.secondary_clicked() {
-        app.eyedropper = None;
+        end(app);
         return true;
     }
     let Some(pos) = resp.hover_pos() else { return true };
@@ -136,7 +154,7 @@ pub fn canvas(app: &mut SlideApp, ui: &Ui, resp: &egui::Response, xf: Xf) -> boo
     if !on_slide {
         ui.ctx().set_cursor_icon(CursorIcon::NotAllowed);
         if resp.clicked() {
-            app.eyedropper = None;
+            end(app);
         }
         return true;
     }
@@ -148,8 +166,14 @@ pub fn canvas(app: &mut SlideApp, ui: &Ui, resp: &egui::Response, xf: Xf) -> boo
     }
     if resp.clicked() {
         let (pick, slide) = (state.pick, state.slide);
-        app.eyedropper = None;
+        end(app);
         match pick {
+            Pick::Menu(menu) if slide.is_none() => {
+                // A master or layout: the colour of the picture the pointer showed.
+                if let Some(c) = under {
+                    store_result(ui.ctx(), menu, &hex(c));
+                }
+            }
             Pick::Menu(menu) => {
                 match app.session.execute("slide.colorAt", &serde_json::json!({"slide": slide, "x": p.x, "y": p.y, "scale": SCALE})) {
                     Ok(v) => {

@@ -151,3 +151,112 @@ fn set_transparent_color_takes_the_colour_clicked_in_the_picture() {
     });
     assert_eq!(clear, Some(Some(deckcraft_color::Rgba::rgb(0, 0, 255))));
 }
+
+/// The whole round trip through a real menu: Home ▸ Font Color ▸ Eyedropper, a click on the red
+/// rectangle, and the selected text box's text turns red. Likewise Shape Fill on the text box.
+#[test]
+fn the_eyedropper_in_a_ribbon_menu_colours_the_selection() {
+    let mut h = harness();
+    let made = h.state_mut().session.execute("insert.textBox", &json!({"rect": [400, 300, 300, 60], "text": "Hello"})).unwrap();
+    let id = u32::try_from(made["id"].as_u64().unwrap()).unwrap();
+    h.state_mut().session.execute("edit.select", &json!({"ids": [id]})).unwrap();
+    h.run_steps(4);
+    let shape = |h: &Harness<'static, SlideApp>| {
+        let d = h.state().session.doc().unwrap();
+        d.doc.slides[d.selection.slide].shapes.iter().find(|s| s.id.0 == id).cloned().unwrap()
+    };
+    let pick = |h: &mut Harness<'static, SlideApp>, menu: &str| {
+        let arrow = h.get_by_label(menu).rect().center();
+        click(h, arrow);
+        let eye = h.get_by_label("Eyedropper").rect().center();
+        click(h, eye);
+        assert!(h.state().eyedropper.is_some(), "{menu}: the Eyedropper waits for a click");
+        let red = at(h, 150.0, 150.0);
+        click(h, red);
+        h.run_steps(4);
+        assert!(h.state().eyedropper.is_none());
+        assert!(h.state().status.as_ref().is_none_or(|(m, _)| !m.starts_with("Eyedropper")), "the prompt is gone once the colour is taken");
+    };
+    pick(&mut h, "Font Color options");
+    let text = format!("{:?}", shape(&h).text.unwrap().paragraphs[0].runs[0].props.fill);
+    assert!(text.contains("255, g: 0, b: 0") || text.to_uppercase().contains("FF0000"), "the text is red: {text}");
+    pick(&mut h, "Shape Fill options");
+    let fill = format!("{:?}", shape(&h).fill);
+    assert!(fill.contains("255, g: 0, b: 0") || fill.to_uppercase().contains("FF0000"), "the fill is red: {fill}");
+}
+
+/// Font Color ▸ Eyedropper while words of a text box are selected for editing colours those words.
+#[test]
+fn the_eyedropper_colours_selected_text_while_editing() {
+    let mut h = harness();
+    let made = h.state_mut().session.execute("insert.textBox", &json!({"rect": [400, 300, 300, 60], "text": "Hello"})).unwrap();
+    let id = u32::try_from(made["id"].as_u64().unwrap()).unwrap();
+    h.state_mut().session.execute("text.edit", &json!({"id": id})).unwrap();
+    h.state_mut().session.execute("text.selectAll", &json!({})).unwrap();
+    h.run_steps(4);
+    let arrow = h.get_by_label("Font Color options").rect().center();
+    click(&mut h, arrow);
+    let eye = h.get_by_label("Eyedropper").rect().center();
+    click(&mut h, eye);
+    assert!(h.state().eyedropper.is_some(), "the Eyedropper waits for a click");
+    let red = at(&h, 150.0, 150.0);
+    click(&mut h, red);
+    h.run_steps(4);
+    let d = h.state().session.doc().unwrap();
+    let sh = d.doc.slides[d.selection.slide].shapes.iter().find(|s| s.id.0 == id).cloned().unwrap();
+    let text = format!("{:?}", sh.text.unwrap().paragraphs[0].runs[0].props.fill);
+    assert!(text.contains("255, g: 0, b: 0") || text.to_uppercase().contains("FF0000"), "the text is red: {text}");
+}
+
+/// Shape Format ▸ Text Fill and Text Outline (split menus) hand the Eyedropper's colour back too.
+#[test]
+fn the_eyedropper_works_in_the_shape_format_split_menus() {
+    let mut h = harness();
+    let made = h.state_mut().session.execute("insert.textBox", &json!({"rect": [400, 300, 300, 60], "text": "Hello"})).unwrap();
+    let id = u32::try_from(made["id"].as_u64().unwrap()).unwrap();
+    h.state_mut().session.execute("edit.select", &json!({"ids": [id]})).unwrap();
+    h.state_mut().ui.tab = "Shape Format".into();
+    h.run_steps(4);
+    for menu in ["Text Fill options", "Text Outline options"] {
+        let arrow = h.get_by_label(menu).rect().center();
+        click(&mut h, arrow);
+        let eye = h.get_by_label("Eyedropper").rect().center();
+        click(&mut h, eye);
+        assert!(h.state().eyedropper.is_some(), "{menu}: the Eyedropper waits for a click");
+        let red = at(&h, 150.0, 150.0);
+        click(&mut h, red);
+        h.run_steps(4);
+    }
+    let d = h.state().session.doc().unwrap();
+    let sh = d.doc.slides[d.selection.slide].shapes.iter().find(|s| s.id.0 == id).cloned().unwrap();
+    let props = format!("{:?}", sh.text.unwrap().paragraphs[0].runs[0].props);
+    assert!(props.matches("255, g: 0, b: 0").count() + props.to_uppercase().matches("FF0000").count() >= 2, "fill and outline are red: {props}");
+}
+
+/// In Slide Master view the Eyedropper takes colours from the master being edited and colours the
+/// selected text there. It used to refuse ("takes colours from a slide").
+#[test]
+fn the_eyedropper_works_in_slide_master_view() {
+    let mut h = harness();
+    h.state_mut().run("view.slideMaster", json!({"master": 0})).unwrap();
+    h.state_mut().session.execute("shape.insert", &json!({"preset": "rect", "rect": [100, 100, 200, 100]})).unwrap();
+    h.state_mut().session.execute("shape.fill", &json!({"color": "#ff0000"})).unwrap();
+    let made = h.state_mut().session.execute("insert.textBox", &json!({"rect": [400, 300, 300, 60], "text": "Hello"})).unwrap();
+    let id = u32::try_from(made["id"].as_u64().unwrap()).unwrap();
+    h.state_mut().session.execute("edit.select", &json!({"ids": [id]})).unwrap();
+    h.state_mut().ui.tab = "Home".into();
+    h.run_steps(4);
+    let arrow = h.get_by_label("Font Color options").rect().center();
+    click(&mut h, arrow);
+    let eye = h.get_by_label("Eyedropper").rect().center();
+    click(&mut h, eye);
+    assert!(h.state().eyedropper.is_some(), "the Eyedropper waits for a click on the master");
+    let red = at(&h, 150.0, 150.0);
+    click(&mut h, red);
+    h.run_steps(4);
+    let d = h.state().session.doc().unwrap();
+    assert_ne!(d.selection.target, deckcraft_engine::Target::Slides, "still in Slide Master view");
+    let sh = d.selected_shapes().into_iter().find(|s| s.id.0 == id).cloned().expect("the text box is still selected");
+    let text = format!("{:?}", sh.text.unwrap().paragraphs[0].runs[0].props.fill);
+    assert!(text.contains("255, g: 0, b: 0") || text.to_uppercase().contains("FF0000"), "the text is red: {text}");
+}

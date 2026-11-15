@@ -963,6 +963,53 @@ fn select_all_follows_the_focused_pane() {
     assert!(!st.selection.shapes.is_empty(), "canvas select all picks the shapes");
 }
 
+/// With the thumbnail pane focused after a plain click on a slide, Delete, Cmd+D, Copy and Paste
+/// act on that slide, as in PowerPoint. Before, they went to the (empty) canvas selection and did
+/// nothing.
+#[test]
+fn slide_pane_shortcuts_act_on_slides() {
+    let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(1200.0, 800.0)).build_ui_state(
+        |ui, app: &mut SlideApp| {
+            app.logic(ui.ctx());
+            app.ui(ui);
+        },
+        SlideApp::new(Session::with_new(), Services::default()),
+    );
+    harness.run_steps(2);
+    for _ in 0..2 {
+        harness.state_mut().run("slide.new", json!({})).unwrap();
+    }
+    harness.state_mut().run("slide.go", json!({"index": 0})).unwrap();
+    harness.run_steps(3);
+    let count = |h: &egui_kittest::Harness<'_, SlideApp>| h.state().session.active().unwrap().doc.slides.len();
+    let w = harness.state().ui.thumbs_width;
+    let pos = egui::pos2(w / 2.0, 300.0);
+    harness.event(egui::Event::PointerMoved(pos));
+    for pressed in [true, false] {
+        harness.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+    }
+    harness.run_steps(2);
+    assert!(harness.state().slides_focused);
+    assert!(harness.state().session.active().unwrap().selection.slides.len() <= 1, "a plain click selects at most one slide");
+    assert_eq!(count(&harness), 3);
+
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
+    harness.run_steps(2);
+    assert_eq!(count(&harness), 4, "Cmd+D duplicates the slide");
+
+    harness.key_press(egui::Key::Delete);
+    harness.run_steps(2);
+    assert_eq!(count(&harness), 3, "Delete removes the slide");
+
+    harness.event(egui::Event::Copy);
+    harness.run_steps(2);
+    assert_eq!(harness.state().session.clipboard.slides.len(), 1, "Copy takes the slide");
+    let text = system_clipboard_text(&harness.state().session.clipboard.plain);
+    harness.event(egui::Event::Paste(text));
+    harness.run_steps(2);
+    assert_eq!(count(&harness), 4, "Paste inserts the copied slide");
+}
+
 fn harness() -> egui_kittest::Harness<'static, SlideApp> {
     egui_kittest::Harness::builder().with_size(egui::vec2(1200.0, 800.0)).build_ui_state(
         |ui, app: &mut SlideApp| {

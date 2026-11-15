@@ -7,12 +7,37 @@ use serde_json::json;
 use crate::SlideApp;
 use crate::theme::{self, Tokens};
 
+/// Whether keys act on the slide list rather than the canvas: the list has focus, no slide text is
+/// being edited and the File tab is closed. Clicking a thumbnail leaves the selection's slide list
+/// empty, so the engine's own fallback (slides when nothing else is selected) does not apply.
+pub(crate) fn keys_on_slide_list(app: &SlideApp) -> bool {
+    app.slides_list_focused() && app.backstage.is_none() && app.session.active().is_some_and(|d| d.selection.text.is_none())
+}
+
+/// Delete and Duplicate while the slide list has focus act on the selected slides, as in the
+/// Slide Sorter. Cut, Copy and Paste arrive as clipboard events and get the scope there.
+fn slide_list_shortcut(app: &SlideApp, key: egui::Key, m: Mods) -> Option<(&'static str, serde_json::Value)> {
+    use egui::Key::*;
+    if !keys_on_slide_list(app) {
+        return None;
+    }
+    match (key, m.cmd, m.shift, m.alt) {
+        (Delete | Backspace, false, false, false) => Some(("edit.delete", json!({"scope": "slides"}))),
+        (D, true, false, false) => Some(("slide.duplicate", json!({}))),
+        _ => None,
+    }
+}
+
 /// Shortcuts the UI handles itself (views, show, zoom, palette, file dialogs). True when consumed.
 pub fn ui_shortcut(app: &mut SlideApp, key: egui::Key, m: Mods) -> bool {
     use egui::Key::*;
     if key == A && m.cmd && !m.shift && !m.alt && app.slides_list_focused() {
         // The engine can't see which pane has focus, so the UI says so through the scope param.
         let _ = app.run("edit.selectAll", json!({"scope": "slides"}));
+        return true;
+    }
+    if let Some((id, params)) = slide_list_shortcut(app, key, m) {
+        let _ = app.run(id, params);
         return true;
     }
     let id = match (key, m.cmd, m.shift, m.alt) {
