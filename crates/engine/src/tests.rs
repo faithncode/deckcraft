@@ -2206,6 +2206,27 @@ fn an_embedded_face_is_used_when_the_machine_lacks_it() {
     assert!(font.regular.is_some());
 }
 
+/// Exporters rename embedded subsets ("1", "2"…); the face still answers to the typeface the
+/// slides name, in the slot's style.
+#[test]
+fn a_renamed_embedded_face_draws_under_its_typeface() {
+    let mut p = deckcraft_model::Presentation::default();
+    let slide = std::sync::Arc::make_mut(&mut p.slides[0]);
+    let mut body = deckcraft_model::text::TextBody::from_text("Hello");
+    body.paragraphs[0].runs[0].props.font = Some("Renamed Subset Face".into());
+    slide.shapes[0].text = Some(body);
+    let id = p
+        .add_media("font1.fntdata", "application/x-fontdata", include_bytes!("../../render/tests/fixtures/colr-squares.ttf").to_vec())
+        .expect("media");
+    p.embedded_fonts.push(deckcraft_model::EmbeddedFont { typeface: "Renamed Subset Face".into(), bold: Some(id), ..Default::default() });
+    let data = crate::cmd::base64_encode(&crate::cmd::file::save_bytes(&p, "pptx").unwrap());
+    let mut s = Session::with_new();
+    let r = s.execute("file.openBytes", &json!({"name": "fonts.pptx", "data": data})).unwrap();
+    assert_eq!(r["missingFonts"], json!([]));
+    let face = deckcraft_fonts::FontDb::global().face("Renamed Subset Face", "Bold");
+    assert_eq!((face.family.as_str(), face.style.as_str()), ("Renamed Subset Face", "Bold"));
+}
+
 #[test]
 fn clicks_in_flipped_shapes_hit_the_text_where_it_is_drawn() {
     // Flips don't mirror text, so a click lands on the character drawn under it.

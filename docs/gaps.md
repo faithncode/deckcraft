@@ -1,6 +1,6 @@
 # Where DeckCraft falls short of PowerPoint
 
-> **Last reviewed:** 2026-10-30 · **Last updated:** 2026-11-04 · **Change:** trivial (workflow-breaking regression fixed: Ctrl+C/X/V use the system clipboard again; #1414 to re-test on Windows; previous: trivial, run alternate language and reflection transforms survive saves; reused slide contents scale to the destination, picker thumbnails remain a gap; previous: trivial (locked No Fill and no-outline click-through regression coverage added; No Fill hit-testing follows resolved fill instead of the presence of a style (#1621); scores unchanged)) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
+> **Last reviewed:** 2026-10-30 · **Last updated:** 2026-11-15 · **Change:** trivial (embedded MicroType Express font subsets are drawn, under the typeface the slides name; entry removed; previous: trivial, workflow-breaking regression fixed: Ctrl+C/X/V use the system clipboard again; #1414 to re-test on Windows; previous: trivial, run alternate language and reflection transforms survive saves; reused slide contents scale to the destination, picker thumbnails remain a gap; previous: trivial (locked No Fill and no-outline click-through regression coverage added; No Fill hit-testing follows resolved fill instead of the presence of a style (#1621); scores unchanged)) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
 
 Every known shortfall, one entry each, ranked by how much it stops someone who presents with
 PowerPoint from switching. This is the work list: pick from the top. Numbers are summarized in
@@ -147,11 +147,6 @@ Detail in [file-format-parity.md](file-format-parity.md).
 - **Impact:** sharing a talk as a video is a common request.
 - **Estimate:** 10–16 h (render the timeline frame by frame, which the GIF can then reuse for
   transitions and builds; an H.264 encoder is the hard part, FilmCraft has one to copy).
-
-### Embedded MicroType Express font subsets aren't drawn
-- **Evidence:** `p:embeddedFontLst` is read and written. A raw TrueType/OpenType face, or one inside an Embedded OpenType wrapper, is loaded and used to draw. A MicroType Express subset (`application/x-fontdata` with neither form) is kept and written back, and the text still uses a stand-in.
-- **Impact:** decks that embed a MicroType subset reflow until that face is installed.
-- **Estimate:** 3–5 h.
 
 ## Features
 
@@ -368,6 +363,7 @@ Detail in [localization-parity.md](localization-parity.md).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-15 | trivial | Embedded MicroType Express (compressed, optionally XOR-obfuscated) Embedded OpenType faces are decoded and drawn, and an embedded face renamed by its exporter answers to the `p:embeddedFont` typeface; the entry is removed |
 | 2026-11-02 | trivial | Run alternate-language metadata now survives native and PPTX saves; UI and proofing gaps remain; scores unchanged |
 | 2026-11-02 | trivial | PPTX reflection geometry is retained through native and PPTX resaves; no rendering parity claim |
 | 2026-11-02 | trivial | Reused slide geometry and content scale to the destination; picker thumbnails remain the reuse gap |

@@ -10,6 +10,7 @@
 
 mod fallback;
 mod fontdb;
+mod mtx;
 pub mod script;
 mod shape;
 
@@ -45,10 +46,13 @@ pub fn japanese_fonts() -> impl Iterator<Item = &'static CraftFont> {
 /// (`application/x-fontdata`).
 ///
 /// The part is the font itself, or an Embedded OpenType wrapper around it (the `0x504C` magic
-/// at byte 34, from the W3C Embedded OpenType submission). A MicroType Express subset is neither,
-/// so this returns none; the original part stays in the file for the round trip.
-pub fn embedded_sfnt(part: &[u8]) -> Option<&[u8]> {
-    eot_payload(part).or_else(|| sfnt_or_collection(part).then_some(part))
+/// at byte 34, from the W3C Embedded OpenType submission). The wrapped font may be XOR-obfuscated
+/// (flag `0x10000000`) and MicroType Express compressed (flag `0x4`, what PowerPoint writes when
+/// it embeds fonts); both are undone here, so a compressed face comes back as a new buffer.
+/// Anything else returns none; the original part stays in the file for the round trip.
+pub fn embedded_sfnt(part: &[u8]) -> Option<std::borrow::Cow<'_, [u8]>> {
+    use std::borrow::Cow;
+    eot_payload(part).or_else(|| sfnt_or_collection(part).then_some(Cow::Borrowed(part)))
 }
 
 fn sfnt_or_collection(b: &[u8]) -> bool {
@@ -60,22 +64,36 @@ fn sfnt_or_collection(b: &[u8]) -> bool {
             || b.starts_with(b"ttcf"))
 }
 
+/// EOT flag: the font data is MicroType Express compressed.
+const TTEMBED_TTCOMPRESSED: u32 = 0x0000_0004;
+/// EOT flag: every font data byte is XORed with 0x50.
+const TTEMBED_XORENCRYPTDATA: u32 = 0x1000_0000;
+
 /// Font data at the end of an Embedded OpenType blob, when the header is one.
-fn eot_payload(b: &[u8]) -> Option<&[u8]> {
+fn eot_payload(b: &[u8]) -> Option<std::borrow::Cow<'_, [u8]>> {
+    use std::borrow::Cow;
     if b.len() < 82 || u16::from_le_bytes([b[34], b[35]]) != 0x504C {
         return None;
     }
-    let version = u32::from_le_bytes(b.get(8..12)?.try_into().ok()?);
+    let le32 = |i: usize| -> Option<u32> { Some(u32::from_le_bytes(b.get(i..i + 4)?.try_into().ok()?)) };
+    let version = le32(8)?;
     if !matches!(version, 0x0001_0000 | 0x0002_0001 | 0x0002_0002) {
         return None;
     }
-    let eot_size = u32::from_le_bytes(b.get(0..4)?.try_into().ok()?) as usize;
-    let font_size = u32::from_le_bytes(b.get(4..8)?.try_into().ok()?) as usize;
+    let eot_size = le32(0)? as usize;
+    let font_size = le32(4)? as usize;
+    let flags = le32(12)?;
     if font_size < 12 || eot_size < font_size.saturating_add(82) || eot_size > b.len() {
         return None;
     }
-    let font = b.get(eot_size - font_size..eot_size)?;
-    sfnt_or_collection(font).then_some(font)
+    let mut font = Cow::Borrowed(b.get(eot_size - font_size..eot_size)?);
+    if flags & TTEMBED_XORENCRYPTDATA != 0 {
+        font = Cow::Owned(font.iter().map(|x| x ^ 0x50).collect());
+    }
+    if flags & TTEMBED_TTCOMPRESSED != 0 {
+        font = Cow::Owned(mtx::decode(&font)?);
+    }
+    sfnt_or_collection(&font).then_some(font)
 }
 
 /// Japanese faces in document-fallback order: Mincho (serif) families first, matching the

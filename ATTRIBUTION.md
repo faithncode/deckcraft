@@ -41,7 +41,7 @@ artwork. The ribbon and menu icons stay original drawings.
 
 | Asset | Author | Source | Licence | Used for |
 |---|---|---|---|---|
-| Ubuntu Light (`Ubuntu-Light.ttf`, via the `epaint_default_fonts` crate 0.37) | Dalton Maag Ltd for Canonical | https://crates.io/crates/epaint_default_fonts | Ubuntu Font Licence 1.0 | Last-resort text face when no other font is available; UI fallback |
+| Ubuntu Light (`Ubuntu-Light.ttf`, via the `epaint_default_fonts` crate 0.37) | Dalton Maag Ltd for Canonical | https://crates.io/crates/epaint_default_fonts | Ubuntu Font Licence 1.0 | Last-resort text face when no other font is available; UI fallback; compressed at test time into the MicroType Express fixtures (`crates/fonts/src/mtx/tests.rs`), nothing extra committed |
 | Hack Regular, Noto Emoji (via `epaint_default_fonts` / egui) | Source Foundry; Google | https://crates.io/crates/epaint_default_fonts | MIT / Bitstream-Vera, OFL-1.1 | egui UI fallback glyphs |
 | `epaint_default_fonts::EGUI_ICONS`, `epaint_default_fonts::EMOJI_ICON` (dependency font inputs) | John Slegers | [egui 6d518fc7](https://github.com/storytold/egui/tree/6d518fc799681571963842f95b55a6b68431b15a/crates/epaint_default_fonts/fonts), [emoji-icon-font](https://github.com/jslegers/emoji-icon-font) | MIT (Copyright (c) 2014 John Slegers; full upstream text in `NOTICE`) | egui-icons.ttf is the five-glyph subset, included by default_fonts independently of monochrome_emoji_fonts; emoji-icon-font.ttf is the full monochrome fallback. Dependency assets unmodified here; no font file copied into this repository. |
 

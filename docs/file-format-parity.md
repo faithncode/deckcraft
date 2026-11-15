@@ -1,6 +1,6 @@
 # File-format parity with PowerPoint
 
-> **Last reviewed:** 2026-11-02 · **Last updated:** 2026-11-07 · **Change:** trivial (a slide whose relationship is missing is reported in `lostSlides`; previous: minor (cell anchorCtr, vertOverflow/horzOverflow, compatLnSpc, normalizeH, thaiDist, table rtl, run altLang and reflection transforms round-trip; Reuse Slides brings referenced custom table styles; previous: minor (native chart payloads stored in bounded ZIP members; previous: major, community PR wave 2026-10-14: seven owned PPTX corpus files, embedded fonts, EMF/WMF clip regions, threaded comments (#70), chart trendlines and workbooks (#335), SmartArt written as a diagram, tags and custom XML kept, picture export DPI; duplicated rows and headers folded; previous: trivial, lines in scaled groups, #233))) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
+> **Last reviewed:** 2026-11-02 · **Last updated:** 2026-11-15 · **Change:** trivial (MicroType Express embedded fonts are decoded and drawn; previous: trivial, a slide whose relationship is missing is reported in `lostSlides`; previous: minor (cell anchorCtr, vertOverflow/horzOverflow, compatLnSpc, normalizeH, thaiDist, table rtl, run altLang and reflection transforms round-trip; Reuse Slides brings referenced custom table styles; previous: minor (native chart payloads stored in bounded ZIP members; previous: major, community PR wave 2026-10-14: seven owned PPTX corpus files, embedded fonts, EMF/WMF clip regions, threaded comments (#70), chart trendlines and workbooks (#335), SmartArt written as a diagram, tags and custom XML kept, picture export DPI; duplicated rows and headers folded; previous: trivial, lines in scaled groups, #233))) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
 
 Every format PowerPoint reads or writes, DeckCraft's support, fidelity and how it is tested.
 Gaps are itemized in [gaps.md](gaps.md#file-formats). Dimension score: **~58% ready**
@@ -63,7 +63,7 @@ intermediate build that required inline `bytes` cannot read the new referenced r
 | WMV | yes (Windows) | embedded, not playable | |
 | Online video (YouTube embeds) | yes | no | Cloud feature |
 | Embedded OLE objects | yes | kept on round trip (opaque), not insertable or editable | `ShapeKind::Opaque` |
-| Embedded fonts | yes | yes | `p:embeddedFontLst` read and written. TrueType, OpenType and Embedded OpenType faces are used to draw; MicroType Express subsets are kept and written back, not drawn |
+| Embedded fonts | yes | yes | `p:embeddedFontLst` read and written. TrueType, OpenType and Embedded OpenType faces are used to draw, including MicroType Express compressed and XOR-obfuscated ones (decoded from the W3C MTX submission; `hdmx`/`VDMX` are dropped from the drawn copy). A face is registered under its `p:embeddedFont` typeface and slot style. The original parts are written back unchanged |
 | 3-D models (`.glb`) | yes | kept | The model part round-trips (`p:contentPart`, including an `mc:AlternateContent` choice and its fallback picture). Not drawn as a mesh and not inserted from the ribbon |
 
 ## PPTX coverage (PresentationML / DrawingML)
@@ -99,7 +99,7 @@ the round trip even though DeckCraft doesn't model it.
 | Comments: legacy | yes | yes | |
 | Comments: modern threaded (`p188`) | yes | yes | Written next to the flattened legacy part; replies and resolved state round-trip (`threads_and_resolved_round_trip`) |
 | Unknown slide-level elements (`graphicFrame` OLE, extensions, `mc:AlternateContent`) | kept | kept | Rendered as a labelled placeholder with the preview picture when present |
-| Embedded fonts | yes | yes | MicroType Express subsets kept, not drawn |
+| Embedded fonts | yes | yes | MicroType Express subsets decoded and drawn; parts kept verbatim |
 | Tags (`p:custDataLst`) on the presentation, slides and shapes | yes | yes | Add-ins such as think-cell keep their identity; `tags_survive_round_trip` |
 | Custom XML data, sensitivity label (`docMetadata/LabelInfo.xml`), custom document properties | kept verbatim | yes | SharePoint metadata and the label survive a save; `custom_xml_label_and_custom_properties_survive_save` |
 | VBA | no | no | |
@@ -119,6 +119,7 @@ the round trip even though DeckCraft doesn't model it.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-15 | trivial | Embedded fonts: MicroType Express (LZCOMP + Compact Table Format) and XOR-obfuscated Embedded OpenType faces are decoded and drawn; faces answer to the `p:embeddedFont` typeface even when the exporter renamed them. Tested on fonts compressed by a test encoder; corrupt input returns nothing |
 | 2026-11-07 | trivial | A slide-list entry whose relationship is missing is reported in `lostSlides` like an unreadable slide part, so the deck opens as a repaired copy; slide lists over 10,000 entries are refused with an import-limit error rather than silently truncated (#1910) |
 | 2026-11-02 | minor | Optional table RTL direction is read and written as `a:tblPr/@rtl`; native and two PPTX saves preserve true, false and absent values with distinguishable column text |
 | 2026-11-02 | minor | Text runs preserve alternate-language metadata in native and PPTX round trips |
