@@ -1059,6 +1059,49 @@ impl FontDb {
                 }
             }
         }
+        self.insert_faces(new)
+    }
+
+    /// Add a font a document embeds, under the family the document names it by and the style of
+    /// the face slot it fills (`"Regular"`, `"Bold"`, `"Italic"`, `"Bold Italic"`). Exporters
+    /// often rename embedded subsets ("1", "2"…) while the slides still ask for the original
+    /// typeface, so a face whose own family (typographic or Windows) isn't `family` is added
+    /// under `family` instead. Returns the number of faces added.
+    pub fn add_embedded_font(&self, bytes: Vec<u8>, family: &str, style: &str) -> usize {
+        let family = family.trim();
+        let data = Arc::new(bytes);
+        let faces: Vec<FontFace> = enumerate_faces(&data)
+            .into_iter()
+            .filter_map(|(i, fam, st, coords)| make_face(FontBytes::Owned(data.clone()), i, fam, st, coords))
+            .collect();
+        let named = |f: &FontFace| f.family.eq_ignore_ascii_case(family) || f.legacy.as_ref().is_some_and(|(l, _)| l.eq_ignore_ascii_case(family));
+        if family.is_empty() || faces.iter().any(named) {
+            let present = |all: &[Arc<FontFace>], f: &FontFace| {
+                all.iter().any(|g| g.family.eq_ignore_ascii_case(&f.family) && g.style.eq_ignore_ascii_case(&f.style))
+            };
+            let existing = self.read_faces();
+            let new: Vec<Arc<FontFace>> = faces.into_iter().filter(|f| !present(&existing, f)).map(Arc::new).collect();
+            drop(existing);
+            return self.insert_faces(new);
+        }
+        // A renamed subset: its first plain face, under the document's names.
+        let Some(mut f) = faces.into_iter().find(|f| f.coords.is_empty()) else { return 0 };
+        let style = if style.trim().is_empty() { "Regular" } else { style.trim() };
+        f.family = family.to_string();
+        f.style = style.to_string();
+        f.legacy = None;
+        if style_weight(style) >= 700.0 && f.weight < 600.0 {
+            f.weight = 700.0;
+        }
+        f.italic |= style_italic(style);
+        self.insert_faces(vec![Arc::new(f)])
+    }
+
+    /// Add faces whose family and style aren't loaded yet. Returns the number added.
+    fn insert_faces(&self, new: Vec<Arc<FontFace>>) -> usize {
+        let present = |faces: &[Arc<FontFace>], family: &str, style: &str| {
+            faces.iter().any(|f| f.family.eq_ignore_ascii_case(family) && f.style.eq_ignore_ascii_case(style))
+        };
         let mut faces = self.faces.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut added = 0;
         for f in new {

@@ -10,20 +10,23 @@ use deckcraft_model::{Presentation, Shape, ShapeKind};
 
 /// Load each embedded face into the font database, so text in that family draws with the file's
 /// font on a machine that doesn't have it. A face already loaded (bundled or installed) stays;
-/// the part bytes are kept either way. MicroType Express subsets have no TrueType or OpenType
-/// font to load and are left for the round trip.
+/// the part bytes are kept either way. MicroType Express subsets are decompressed first, and a
+/// face is registered under the `p:embeddedFont` typeface and the slot's style even when its own
+/// name table says otherwise.
 pub fn install_embedded_fonts(p: &Presentation) {
     let db = FontDb::global();
     // Faces can name one media item many times; each is copied and enumerated once.
     let mut seen = HashSet::new();
     for font in &p.embedded_fonts {
-        for id in font.faces().into_iter().flatten() {
+        for (id, style) in font.faces().into_iter().zip(["Regular", "Bold", "Italic", "Bold Italic"]) {
+            let Some(id) = id else { continue };
             if !seen.insert(id) {
                 continue;
             }
             let Some(item) = p.media(id) else { continue };
             let Some(sfnt) = deckcraft_fonts::embedded_sfnt(&item.data) else { continue };
-            db.add_font(sfnt.to_vec());
+            // Under the typeface the slides use: exporters rename embedded subsets.
+            db.add_embedded_font(sfnt.into_owned(), &font.typeface, style);
         }
     }
 }
